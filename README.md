@@ -86,5 +86,4 @@ build_exe.bat        Builds dist\DBTesterToolkit.exe with PyInstaller
 - One statement per query.
 
 ## License
-
-Add your preferred license here (for example MIT).
+GPL 3.0
