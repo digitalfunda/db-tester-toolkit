@@ -1,0 +1,4 @@
+flask
+oracledb
+pyodbc
+pyinstaller
