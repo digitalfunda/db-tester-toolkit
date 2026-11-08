@@ -49,6 +49,12 @@ def connect(cfg):
         if not drv: raise RuntimeError("No SQL Server ODBC driver found. Install 'ODBC Driver 17/18 for SQL Server'.")
         auth = "Trusted_Connection=yes" if cfg.get("mode") == "windows" else f'UID={cfg["user"]};PWD={cfg["password"]}'
         return pyodbc.connect(f'DRIVER={{{drv[-1]}}};SERVER={cfg["host"]},{cfg.get("port") or 1433};DATABASE={cfg["database"]};{auth};TrustServerCertificate=yes')
+    if t == "mysql":
+        import pymysql
+        if cfg.get("conn_string"):   # format: host:port/database
+            hp, _, db = cfg["conn_string"].partition("/"); h, _, pt = hp.partition(":")
+            return pymysql.connect(host=h, port=int(pt or 3306), user=cfg["user"], password=cfg["password"], database=db)
+        return pymysql.connect(host=cfg["host"], port=int(cfg.get("port") or 3306), user=cfg["user"], password=cfg["password"], database=cfg["database"], charset="utf8mb4")
     raise ValueError("Unsupported DB type")
 
 CONNS = {}
@@ -61,7 +67,7 @@ def open_profile(name):
     return CONNS[name]
 
 def q(sql, params=(), limit=None, conn=None):
-    cur = (conn or STATE["conn"]).cursor(); t0 = time.time(); cur.execute(sql, params)
+    cur = (conn or STATE["conn"]).cursor(); t0 = time.time(); cur.execute(sql, params) if params else cur.execute(sql)
     cols = [d[0] for d in cur.description] if cur.description else []
     rows = [list(r) for r in (cur.fetchmany(limit) if limit else cur.fetchall())] if cols else []
     return cols, rows, round((time.time() - t0) * 1000)
@@ -80,6 +86,11 @@ def schema():
             for col in tabs.get(n, {"cols": []})["cols"]:
                 if col["name"] == c: col["pk"] = True
         for a, b, c, d in q(f"select a.table_name,a.column_name,c_pk.table_name,pc.column_name from all_cons_columns a join all_constraints c on a.owner=c.owner and a.constraint_name=c.constraint_name join all_constraints c_pk on c.r_owner=c_pk.owner and c.r_constraint_name=c_pk.constraint_name join all_cons_columns pc on pc.owner=c_pk.owner and pc.constraint_name=c_pk.constraint_name and pc.position=a.position where c.owner='{o}' and c.constraint_type='R'")[1]:
+            fks.append({"t": a, "c": b, "rt": c, "rc": d})
+    elif t == "mysql":
+        for n, c, ty, k in q("select c.table_name,c.column_name,c.data_type,c.column_key from information_schema.columns c join information_schema.tables t on t.table_schema=c.table_schema and t.table_name=c.table_name and t.table_type='BASE TABLE' where c.table_schema=database() order by c.table_name,c.ordinal_position")[1]:
+            tabs.setdefault(n, {"cols": []})["cols"].append({"name": c, "type": ty, "pk": k == "PRI"})
+        for a, b, c, d in q("select table_name,column_name,referenced_table_name,referenced_column_name from information_schema.key_column_usage where table_schema=database() and referenced_table_name is not null")[1]:
             fks.append({"t": a, "c": b, "rt": c, "rc": d})
     else:
         nm = lambda sch, tb: f"case when {sch}='dbo' then {tb} else {sch}+'.'+{tb} end"

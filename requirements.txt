@@ -1,4 +1,5 @@
 flask
 oracledb
 pyodbc
+pymysql
 pyinstaller
